@@ -8,10 +8,25 @@ import {JSDOM} from 'jsdom';
 
 const trello = new Trello(process.env.KEY, process.env.TOKEN);
 
-function makePromise(action, ...rest): Promise<any> {
+interface Card {
+    id: string;
+    desc: string;
+    name: string;
+    idAttachmentCover?: string;
+}
+
+interface List {
+    id: string;
+}
+
+interface Attachment {
+    url: string;
+}
+
+function makePromise<T>(action: string, ...rest: any[]): Promise<T> {
     return new Promise(function (resolve, reject) {
         console.log(action, rest);
-        trello[action].apply(trello, rest.concat([(err, data) => {
+        trello[action].apply(trello, rest.concat([(err: Error, data: T) => {
             if (err) {
                 reject(err);
             } else {
@@ -21,23 +36,19 @@ function makePromise(action, ...rest): Promise<any> {
     });
 }
 
-function getBoard(id) {
-    return makePromise('get', `/1/board/${id}`);
-}
-
-function getLists(boardId): Promise<any[]> {
+function getLists(boardId: string): Promise<List[]> {
     return makePromise('get', `/1/board/${boardId}/lists`);
 }
 
-function getCards(listId) {
+function getCards(listId: string): Promise<Card[]> {
     return makePromise('get', `/1/list/${listId}/cards`);
 }
 
-function addAttachment(cardId, data) {
+function addAttachment(cardId: string, data: Attachment) {
     return makePromise('post', `/1/card/${cardId}/attachments`, data);
 }
 
-function updateCard(cardId: string, data) {
+function updateCard(cardId: string, data: Partial<Card>) {
     return makePromise('put', `/1/card/${cardId}`, data);
 }
 
@@ -45,17 +56,28 @@ function deleteCard(cardId: string) {
     return makePromise('del', `/1/cards/${cardId}`);
 }
 
-function getUrl(str = '') {
-    const urls = str.match(/https?:\/\/[^ \n]+/gm);
-    return urls && urls.length && urls[0] || null;
+function getCardAttachments(cardId: string): Promise<Attachment[]> {
+    return makePromise('get', `/1/cards/${cardId}/attachments`);
 }
 
-async function processCard(cardData) {
+function getUrl(str = ''): string {
+    const urls = str.match(/https?:\/\/[^ \n]+/gm);
+    return urls && urls.length && urls[0] || '';
+}
+
+async function findUrlFromAttachment(cardId: string): Promise<string> {
+    const attachments = await getCardAttachments(cardId);
+    let found = attachments
+        .find((a: Attachment) => a.url.includes('craigslist'));
+    return found ? found.url : '';
+}
+
+async function processCard(cardData: Card) {
     console.log(`${cardData.name}: Started processing`);
     if (cardData.name === 'Check out this listing on REALTOR.ca') {
         await updateCard(cardData.id, {name: cardData.desc})
     }
-    const url = getUrl(cardData.name) || getUrl(cardData.desc);
+    const url = getUrl(cardData.name) || getUrl(cardData.desc) || await findUrlFromAttachment(cardData.id);
 
     if (!url) {
         console.log(`${cardData.name} has no URL`);
@@ -95,13 +117,14 @@ async function processCard(cardData) {
             console.log(`${cardData.name}: Has no og:title`);
         } else {
             console.log(`${cardData.name}: Will replace title with: ${title}`);
-            await updateCard(cardData.id, {
-                name: title,
-                desc: `${url}
+            let desc = `${url}
 
 ${description}
 
-${cardData.desc}`
+${cardData.desc}`;
+            await updateCard(cardData.id, {
+                name: title,
+                desc: desc.substr(0, 16384)
             });
         }
     } catch (e) {
@@ -109,7 +132,7 @@ ${cardData.desc}`
     }
 }
 
-async function processCards(cards) {
+async function processCards(cards: Card[]) {
     const results = [];
     for (const card of cards) {
         try {

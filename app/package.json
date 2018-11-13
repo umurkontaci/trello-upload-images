@@ -13,7 +13,9 @@
     "open-graph-scraper": "3.5.1",
     "typescript": "3.1.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "@types/lodash": "4.14.118"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
